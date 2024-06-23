@@ -26,18 +26,21 @@ class Block:
         self.shape_idx = shapes.index(shape)
         self.x = 5
         self.y = 0
+        self.rotation = 0
         self.shape_2d = shapes_2d[shape]
         self.center_x = int(sum([p[0] for p in self.shape_2d]) / len(self.shape_2d))
         self.center_y = int(sum([p[1] for p in self.shape_2d]) / len(self.shape_2d))
         self.last_moved = time.time()
         self.interval = 1
     
-    def rotate(self):
+    def rotate(self, board):
         moved_shape = [[p[0]-self.center_x, p[1]-self.center_y] for p in self.shape_2d]
         rotated_shape = [[p[1], -p[0]] for p in moved_shape]
         new_shape = [[p[0]+self.center_x, p[1]+self.center_y] for p in rotated_shape]
-        if self.x + min([p[0] for p in new_shape]) >= 0 and self.x + max([p[0] for p in new_shape]) <= 9:
+        if self.x + min([p[0] for p in new_shape]) >= 0 and self.x + max([p[0] for p in new_shape]) <= 9 and self.y + max([p[1] for p in new_shape]) <= 19 and not self.check_collision(board, new_shape):
             self.shape_2d = new_shape
+            self.rotation += 90
+            self.rotation %= 360
     
     def move(self, x, board):
         if self.x + x + min([p[0] for p in self.shape_2d]) >= 0 and self.x + x + max([p[0] for p in self.shape_2d]) <= 9:
@@ -50,13 +53,15 @@ class Block:
             self.y += 1
             self.last_moved = time.time()
     
-    def check_collision(self, board):
-        for x, y in self.shape_2d:
-            if self.y + y == 19 or board[self.y+y+1][self.x+x]:
-                return True
+    def check_collision(self, board, shape=None):
+        if not shape: shape = self.shape_2d
+        for x, y in shape:
+            try: 
+                if self.y + y == 19 or board[self.y+y+1][self.x+x]: return True
+            except: return True
 
 class Game:
-    def __init__(self, cell_size):
+    def __init__(self, cell_size=30):
         pygame.init()
         self.cell_size = cell_size
         self.screen = pygame.display.set_mode((cell_size*10, cell_size*20))
@@ -79,34 +84,36 @@ class Game:
     def merge_block(self):
         if not self.current_block.check_collision(self.board):
             return
-        unavailable = self.check_unavailable()
+        holes = self.check_holes()
         for x, y in self.current_block.shape_2d:
-            self.board[self.current_block.y+y][self.current_block.x+x] = 1
-        unavailable_after = self.check_unavailable()
-        self.reward += (unavailable - unavailable_after) * 100
+            try: self.board[self.current_block.y+y][self.current_block.x+x] = 1
+            except: print(self.board, x, y)
+        holes_after = self.check_holes()
+        self.reward += (holes - holes_after) * 100
+        if holes == holes_after: self.reward += 20
         self.current_block = self.new_block()
 
     def check_rows(self):
-        unavailable = self.check_unavailable()
+        unavailable = self.check_holes()
         for y, row in enumerate(self.board):
             if all(row):
                 self.board.pop(y)
                 self.board.insert(0, [0 for _ in range(10)])
                 self.score += 1
                 self.reward += 100
-        unavailable_after = self.check_unavailable()
+        unavailable_after = self.check_holes()
         self.reward += (unavailable - unavailable_after) * 100
 
-    def check_unavailable(self):
-        spots = 0
+    def check_holes(self):
+        holes = 0
         for x in range(len(self.board)):
             for y in range(len(self.board[0])):
                 if self.board[x][y] == 0 or x == 19: continue
-                elif self.board[x+1][y] == 0: spots += 1
-        return spots
+                elif self.board[x+1][y] == 0: holes += 1
+        return holes
 
     def lost(self):
-        for cell in self.board[0]:
+        for cell in self.board[1]:
             if cell:
                 return True
         return False
@@ -120,7 +127,7 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 pressed = event.key
                 if pressed == pygame.K_r:
-                    self.current_block.rotate()
+                    self.current_block.rotate(self.board)
                 if pressed == pygame.K_c:
                     self.restart()
                 if pressed in [pygame.K_LEFT, pygame.K_a]:
@@ -142,7 +149,7 @@ class Game:
         for y in range(0, 20):
             pygame.draw.line(self.screen, colors["grey"], (0, y*self.cell_size), (10*self.cell_size, y*self.cell_size))
 
-    def draw(self):
+    def draw(self, moves, games, reward):
         self.screen.fill(colors["white"])
         self.draw_grid()
         for y, row in enumerate(self.board):
@@ -151,8 +158,7 @@ class Game:
                     pygame.draw.rect(self.screen, colors["red"], (x*self.cell_size, y*self.cell_size, self.cell_size, self.cell_size))
         for x, y in self.current_block.shape_2d:
             pygame.draw.rect(self.screen, colors["red"], ((x+self.current_block.x)*self.cell_size, (y+self.current_block.y)*self.cell_size, self.cell_size, self.cell_size))
-        pygame.display.set_caption(f"Tetris | Score: {self.score} | Reward: {self.reward}")
-        print(self.reward)
+        pygame.display.set_caption(f"Tetris | Games: {games} | Reward: {reward} | Moves: {moves[0]}/{moves[1]}")
         pygame.display.flip()
 
     def get_state(self):
@@ -160,6 +166,9 @@ class Game:
         state.append(self.current_block.shape_idx)
         state.append(self.current_block.x)
         state.append(self.current_block.y)
+        state.append(self.current_block.rotation)
+        for row in self.board:
+            state.extend(row)
         for x in range(10):
             for y in range(20):
                 if self.board[y][x]:
@@ -176,11 +185,11 @@ class Game:
         if action == 1:
             self.current_block.move(1, self.board)
         if action == 2:
-            self.current_block.rotate()
+            self.current_block.rotate(self.board)
+        self.current_block.interval = 0.01
         self.current_block.move_down()
         self.merge_block()
         self.check_rows()
-        self.draw()
         if self.lost():
             self.reward = -1000
         return self.get_state(), self.reward, self.lost()

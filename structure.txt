@@ -1,5 +1,5 @@
 input for ai - state:
-    current block shape2d, x and y of the block, highest point of each col on the board
+    current block shape2d, x and y of the block, rotation, highest point of each col on the board
 output of ai - choice:
     go left/right, rotate, do nothing
 reward:
