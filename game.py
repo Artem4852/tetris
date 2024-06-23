@@ -23,6 +23,7 @@ colors = {
 class Block:
     def __init__(self, shape):
         self.shape = shape
+        self.shape_idx = shapes.index(shape)
         self.x = 5
         self.y = 0
         self.shape_2d = shapes_2d[shape]
@@ -38,9 +39,11 @@ class Block:
         if self.x + min([p[0] for p in new_shape]) >= 0 and self.x + max([p[0] for p in new_shape]) <= 9:
             self.shape_2d = new_shape
     
-    def move(self, x):
+    def move(self, x, board):
         if self.x + x + min([p[0] for p in self.shape_2d]) >= 0 and self.x + x + max([p[0] for p in self.shape_2d]) <= 9:
             self.x += x
+        if self.check_collision(board):
+            self.x -= x
 
     def move_down(self):
         if time.time() - self.last_moved > self.interval:
@@ -65,24 +68,48 @@ class Game:
         self.score = 0
         self.board = [[0 for _ in range(10)] for _ in range(20)]
         self.current_block = self.new_block()
+        self.is_new_block = False
+
+        self.reward = 0
 
     def new_block(self):
+        self.is_new_block = True
         return Block(random.choice(shapes))
     
     def merge_block(self):
-        print(self.current_block.y + max([p[1] for p in self.current_block.shape_2d]))
         if not self.current_block.check_collision(self.board):
             return
+        unavailable = self.check_unavailable()
         for x, y in self.current_block.shape_2d:
             self.board[self.current_block.y+y][self.current_block.x+x] = 1
+        unavailable_after = self.check_unavailable()
+        self.reward += (unavailable - unavailable_after) * 100
         self.current_block = self.new_block()
 
     def check_rows(self):
+        unavailable = self.check_unavailable()
         for y, row in enumerate(self.board):
             if all(row):
                 self.board.pop(y)
                 self.board.insert(0, [0 for _ in range(10)])
                 self.score += 1
+                self.reward += 100
+        unavailable_after = self.check_unavailable()
+        self.reward += (unavailable - unavailable_after) * 100
+
+    def check_unavailable(self):
+        spots = 0
+        for x in range(len(self.board)):
+            for y in range(len(self.board[0])):
+                if self.board[x][y] == 0 or x == 19: continue
+                elif self.board[x+1][y] == 0: spots += 1
+        return spots
+
+    def lost(self):
+        for cell in self.board[0]:
+            if cell:
+                return True
+        return False
     
     def handle_input(self):
         self.current_block.interval = 1
@@ -97,18 +124,17 @@ class Game:
                 if pressed == pygame.K_c:
                     self.restart()
                 if pressed in [pygame.K_LEFT, pygame.K_a]:
-                    self.current_block.move(-1)
+                    self.current_block.move(-1, self.board)
                 if pressed in [pygame.K_RIGHT, pygame.K_d]:
-                    self.current_block.move(1)
+                    self.current_block.move(1, self.board)
+                if pressed == pygame.K_SPACE:
+                    self.is_new_block = False
         
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_DOWN] or pressed[pygame.K_s]:
             self.current_block.interval = 0.1
-        # self.current_block.y += 1
-        # if self.check_collision():
-        #     self.current_block.y -= 1
-        #     self.merge_block()
-        #     self.current_block = self.new_block()
+        elif pressed[pygame.K_SPACE] and self.is_new_block == False:
+            self.current_block.interval = 0.01
     
     def draw_grid(self):
         for x in range(0, 10):
@@ -125,16 +151,50 @@ class Game:
                     pygame.draw.rect(self.screen, colors["red"], (x*self.cell_size, y*self.cell_size, self.cell_size, self.cell_size))
         for x, y in self.current_block.shape_2d:
             pygame.draw.rect(self.screen, colors["red"], ((x+self.current_block.x)*self.cell_size, (y+self.current_block.y)*self.cell_size, self.cell_size, self.cell_size))
-        pygame.display.set_caption(f"Tetris | Score: {self.score}")
+        pygame.display.set_caption(f"Tetris | Score: {self.score} | Reward: {self.reward}")
+        print(self.reward)
         pygame.display.flip()
+
+    def get_state(self):
+        state = []
+        state.append(self.current_block.shape_idx)
+        state.append(self.current_block.x)
+        state.append(self.current_block.y)
+        for x in range(10):
+            for y in range(20):
+                if self.board[y][x]:
+                    state.append(y)
+                    break
+            else:
+                state.append(20)
+        return state
+
+    def step(self, action):
+        self.reward = 0
+        if action == 0:
+            self.current_block.move(-1, self.board)
+        if action == 1:
+            self.current_block.move(1, self.board)
+        if action == 2:
+            self.current_block.rotate()
+        self.current_block.move_down()
+        self.merge_block()
+        self.check_rows()
+        self.draw()
+        if self.lost():
+            self.reward = -1000
+        return self.get_state(), self.reward, self.lost()
     
     def run(self):
         while True:
             self.clock.tick(60)
+            self.reward = 0
             self.handle_input()
             self.current_block.move_down()
             self.merge_block()
             self.check_rows()
+            if self.lost():
+                self.restart()
             self.draw()
 
 
