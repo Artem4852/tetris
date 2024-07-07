@@ -149,7 +149,7 @@ class Game:
         for y in range(0, 20):
             pygame.draw.line(self.screen, colors["grey"], (0, y*self.cell_size), (10*self.cell_size, y*self.cell_size))
 
-    def draw(self, moves, games, reward):
+    def draw(self, moves=[0, 0], games=0, reward=0):
         self.screen.fill(colors["white"])
         self.draw_grid()
         for y, row in enumerate(self.board):
@@ -158,7 +158,8 @@ class Game:
                     pygame.draw.rect(self.screen, colors["red"], (x*self.cell_size, y*self.cell_size, self.cell_size, self.cell_size))
         for x, y in self.current_block.shape_2d:
             pygame.draw.rect(self.screen, colors["red"], ((x+self.current_block.x)*self.cell_size, (y+self.current_block.y)*self.cell_size, self.cell_size, self.cell_size))
-        pygame.display.set_caption(f"Tetris | Games: {games} | Reward: {reward} | Moves: {moves[0]}/{moves[1]}")
+        if moves[0]: pygame.display.set_caption(f"Tetris | Games: {games} | Reward: {reward} | Moves: {moves[0]}/{moves[1]}")
+        else: pygame.display.set_caption(f"Tetris | Score: {self.score}")
         pygame.display.flip()
 
     def get_state(self):
